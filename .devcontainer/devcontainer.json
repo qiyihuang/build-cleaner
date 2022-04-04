@@ -1,0 +1,17 @@
+{
+  "name": "qiyihuang/build-cleaner",
+  "image": "mcr.microsoft.com/vscode/devcontainers/go:1.16",
+  "runArgs": ["--name=dev-build-cleaner"],
+  "forwardPorts": [8080],
+  "extensions": [
+    "golang.go",
+    "mikestead.dotenv",
+    "codezombiech.gitignore",
+    "aaron-bond.better-comments",
+    "ms-azuretools.vscode-docker",
+    "davidanson.vscode-markdownlint"
+  ],
+  "features": {
+    "github-cli": "latest",
+  }
+}
