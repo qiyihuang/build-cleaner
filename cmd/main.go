@@ -5,8 +5,9 @@ import (
 	"os"
 
 	"github.com/GoogleCloudPlatform/functions-framework-go/funcframework"
+	"github.com/GoogleCloudPlatform/functions-framework-go/functions"
 	"github.com/joho/godotenv"
-	_ "github.com/qiyihuang/build-cleaner"
+	BuildCleaner "github.com/qiyihuang/build-cleaner"
 )
 
 func main() {
@@ -16,8 +17,8 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	port := "8080"
-	if err := funcframework.Start(port); err != nil {
+	functions.HTTP("Clean", BuildCleaner.Clean)
+	if err := funcframework.Start("8080"); err != nil {
 		log.Fatalf("funcframework.Start: %v\n", err)
 	}
 }
