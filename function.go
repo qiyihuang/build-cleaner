@@ -44,7 +44,7 @@ const (
 	Failed
 )
 
-func (bs BuildStatus) String() string {
+func (bs BuildStatus) string() string {
 	return []string{"SUCCESS", "FAILURE", "CANCELLED", "TIMEOUT", "FAILED"}[bs]
 }
 
@@ -62,7 +62,7 @@ func Clean(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// There's a delay between build completion and function being 'active'.
+	// There's a delay for around a minute and a half between build completion and function being 'active'.
 	time.Sleep(2 * time.Minute)
 	if err := cleanBuckets(); err != nil {
 		log.Println("deleteBuckets: ", err)
@@ -82,7 +82,7 @@ func notifyParams(m pubsubMessage) (string, int) {
 	status := m.Message.Attributes.Status
 	desc := "Build status: " + status + "."
 	var color int
-	if status == Success.String() {
+	if status == Success.string() {
 		color = GREEN
 	} else {
 		color = RED
