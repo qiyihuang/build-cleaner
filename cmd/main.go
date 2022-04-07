@@ -10,6 +10,8 @@ import (
 	BuildCleaner "github.com/qiyihuang/build-cleaner"
 )
 
+const VERSION = "0.1.0"
+
 func main() {
 	if os.Getenv("ENV") != "production" && os.Getenv("ENV") != "test" {
 		err := godotenv.Load()
