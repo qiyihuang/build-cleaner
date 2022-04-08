@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
-	"github.com/GoogleCloudPlatform/functions-framework-go/functions"
 	"github.com/qiyihuang/messenger"
 	"google.golang.org/api/iterator"
 )
 
 var httpClient *http.Client
+var bucketHandle *storage.BucketHandle
 
 const (
 	GREEN int = 5763719
@@ -44,15 +44,11 @@ const (
 	Failed
 )
 
-func (bs BuildStatus) String() string {
+func (bs BuildStatus) string() string {
 	return []string{"SUCCESS", "FAILURE", "CANCELLED", "TIMEOUT", "FAILED"}[bs]
 }
 
-func init() {
-	functions.HTTP("Clean", clean)
-}
-
-func clean(w http.ResponseWriter, r *http.Request) {
+func Clean(w http.ResponseWriter, r *http.Request) {
 	var m pubsubMessage
 	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
 		internalError(w, err, "Failed to decode request body.")
@@ -66,6 +62,7 @@ func clean(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// There's a delay for around a minute and a half between build completion and function being 'active'.
 	time.Sleep(2 * time.Minute)
 	if err := cleanBuckets(); err != nil {
 		log.Println("deleteBuckets: ", err)
@@ -85,7 +82,7 @@ func notifyParams(m pubsubMessage) (string, int) {
 	status := m.Message.Attributes.Status
 	desc := "Build status: " + status + "."
 	var color int
-	if status == Success.String() {
+	if status == Success.string() {
 		color = GREEN
 	} else {
 		color = RED
@@ -115,12 +112,10 @@ func cleanBuckets() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	client, err := storage.NewClient(ctx)
+	bkt, err := bucket()
 	if err != nil {
 		return err
 	}
-
-	bkt := client.Bucket(os.Getenv("ARTIFACT_BUCKET_NAME"))
 	objIt := bkt.Objects(ctx, nil)
 	names, err := objectNames(objIt)
 	if err != nil {
@@ -165,6 +160,17 @@ func client() *http.Client {
 		httpClient = http.DefaultClient
 	}
 	return httpClient
+}
+
+func bucket() (*storage.BucketHandle, error) {
+	if bucketHandle == nil {
+		client, err := storage.NewClient(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		bucketHandle = client.Bucket(os.Getenv("ARTIFACT_BUCKET_NAME"))
+	}
+	return bucketHandle, nil
 }
 
 func internalError(w http.ResponseWriter, err error, msg string) {
