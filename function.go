@@ -14,7 +14,7 @@ import (
 	"google.golang.org/api/iterator"
 )
 
-var httpClient *http.Client
+var webhookClient *messenger.Client
 var bucketHandle *storage.BucketHandle
 
 const (
@@ -73,7 +73,7 @@ func Clean(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := notify("Cloud Build source and artifact buckets deleted.", GREEN); err != nil {
+	if err := notify("Cloud Build artifact buckets cleaned.", GREEN); err != nil {
 		internalError(w, err, "notify: ")
 	}
 }
@@ -96,12 +96,11 @@ func notify(description string, color int) error {
 		Embeds:   []messenger.Embed{{Title: "Google Cloud Build", Description: description, Color: color}},
 	}}
 
-	req, err := messenger.NewRequest(client(), os.Getenv("DISCORD_WEBHOOK_URL"), msgs)
+	clt, err := client()
 	if err != nil {
 		return err
 	}
-
-	_, err = req.Send()
+	_, err = clt.Send(msgs)
 	if err != nil {
 		return err
 	}
@@ -155,11 +154,15 @@ func deleteObject(ctx context.Context, wg *sync.WaitGroup, name string, bkt *sto
 	}
 }
 
-func client() *http.Client {
-	if httpClient == nil {
-		httpClient = http.DefaultClient
+func client() (*messenger.Client, error) {
+	if webhookClient == nil {
+		var err error
+		webhookClient, err = messenger.NewClient(http.DefaultClient, os.Getenv("DISCORD_WEBHOOK_URL"))
+		if err != nil {
+			return nil, err
+		}
 	}
-	return httpClient
+	return webhookClient, nil
 }
 
 func bucket() (*storage.BucketHandle, error) {
