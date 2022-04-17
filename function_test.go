@@ -2,9 +2,10 @@ package function
 
 import (
 	"net/http"
+	"os"
 	"testing"
-	"time"
 
+	"github.com/qiyihuang/messenger"
 	"github.com/stretchr/testify/require"
 )
 
@@ -74,21 +75,38 @@ func TestNotifyParams(t *testing.T) {
 	})
 }
 
+func resetClient() {
+	webhookClient = nil
+}
+
 func TestClient(t *testing.T) {
 	t.Run("httpClient is nil", func(t *testing.T) {
-		httpClient = nil
+		resetClient()
+		defer resetClient()
+		os.Setenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/somehook")
+		defer os.Unsetenv("ARTIFACT_BUCKET_NAME")
 
-		c := client()
+		c, _ := client()
 
-		require.Equal(t, http.DefaultClient, c, "Incorrect httpClient")
+		require.NotEmpty(t, c, "Incorrect httpClient")
 	})
 
 	t.Run("httpClient exists", func(t *testing.T) {
-		httpClient = &http.Client{Timeout: 1 * time.Second}
+		webhookClient, _ = messenger.NewClient(http.DefaultClient, "https://discord.com/api/webhooks/somehook")
+		defer resetClient()
 
-		c := client()
+		c, _ := client()
 
-		require.NotEqual(t, http.DefaultClient, c, "Incorrect httpClient")
+		require.NotEmpty(t, c, "Incorrect httpClient")
+	})
+
+	t.Run("Return error", func(t *testing.T) {
+		os.Setenv("DISCORD_WEBHOOK_URL", "wrong url")
+		defer os.Unsetenv("DISCORD_WEBHOOK_URL")
+
+		_, err := client()
+
+		require.Error(t, err, "Return error failed")
 	})
 }
 
