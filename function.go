@@ -73,7 +73,7 @@ func Clean(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := notify("Cloud Build source and artifact buckets deleted.", GREEN); err != nil {
+	if err := notify("Cloud Build artifact buckets cleaned.", GREEN); err != nil {
 		internalError(w, err, "notify: ")
 	}
 }
