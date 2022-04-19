@@ -126,7 +126,7 @@ func waitDeploy() (isLast bool, err error) {
 	var count uint
 	for {
 		time.Sleep(10 * time.Second)
-		if count, err = countDeployInProgress(); count < startCount {
+		if count, err = countDeployInProgress(); count < startCount || count == 0 {
 			if err != nil {
 				return
 			}
