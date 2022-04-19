@@ -11,6 +11,7 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/qiyihuang/messenger"
+	"google.golang.org/api/cloudfunctions/v1"
 	"google.golang.org/api/iterator"
 )
 
@@ -56,14 +57,21 @@ func Clean(w http.ResponseWriter, r *http.Request) {
 	}
 
 	desc, color := notifyParams(m)
-	log.Println(desc)
 	if err := notify(desc, color); err != nil {
 		internalError(w, err, "notify: ")
 		return
 	}
 
-	// There's a delay for around a minute and a half between build completion and function being 'active'.
-	time.Sleep(2 * time.Minute)
+	isLast, err := waitDeploy()
+	if err != nil {
+		internalError(w, err, "waitDeploy: ")
+	}
+	if !isLast {
+		notify("One resource deployed, waiting for other to complete.", GREEN)
+		// Return 200 without cleaning up the bucket, wait for the last resource finished deploying to do that.
+		return
+	}
+
 	if err := cleanBuckets(); err != nil {
 		log.Println("deleteBuckets: ", err)
 		if err := notify("Delete bucket failed, please check not and delete buckets manually.", RED); err != nil {
@@ -105,6 +113,47 @@ func notify(description string, color int) error {
 		return err
 	}
 	return nil
+}
+
+func waitDeploy() (isLast bool, err error) {
+	// Since there's a delay between build completion and resource deployment completion,
+	// startCount should at least be 1.
+	startCount, err := countDeployInProgress()
+	if err != nil {
+		return
+	}
+	// Check if there's a function finish deploying every 10 seconds
+	var count uint
+	for {
+		time.Sleep(10 * time.Second)
+		if count, err = countDeployInProgress(); count < startCount || count == 0 {
+			if err != nil {
+				return
+			}
+			break
+		}
+	}
+	return count == 0, nil
+}
+
+func countDeployInProgress() (uint, error) {
+	service, err := cloudfunctions.NewService(context.Background())
+	if err != nil {
+		return 0, err
+	}
+	parent := "projects/" + os.Getenv("PROJECT_NAME") + "/locations/-"
+	resp, err := service.Projects.Locations.Functions.List(parent).Do()
+	if err != nil {
+		return 0, err
+	}
+
+	var inProgressCount uint
+	for _, fn := range resp.Functions {
+		if fn.Status == "DEPLOY_IN_PROGRESS" {
+			inProgressCount += 1
+		}
+	}
+	return inProgressCount, nil
 }
 
 func cleanBuckets() error {
@@ -177,6 +226,6 @@ func bucket() (*storage.BucketHandle, error) {
 }
 
 func internalError(w http.ResponseWriter, err error, msg string) {
-	log.Println(msg, err)
+	log.Println(msg, err.Error())
 	w.WriteHeader(500)
 }
