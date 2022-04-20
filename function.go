@@ -11,6 +11,7 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/qiyihuang/messenger"
+	"google.golang.org/api/cloudbuild/v1"
 	"google.golang.org/api/cloudfunctions/v1"
 	"google.golang.org/api/iterator"
 )
@@ -62,9 +63,10 @@ func Clean(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isLast, err := waitDeploy()
+	isLast, err := lastBuild()
 	if err != nil {
-		internalError(w, err, "waitDeploy: ")
+		internalError(w, err, "lastBuild: ")
+		return
 	}
 	if !isLast {
 		notify("One resource deployed, waiting for other to complete.", GREEN)
@@ -72,10 +74,15 @@ func Clean(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := waitDeploy(); err != nil {
+		internalError(w, err, "waitDeploy: ")
+		return
+	}
+
 	if err := cleanBuckets(); err != nil {
-		log.Println("deleteBuckets: ", err)
+		log.Println("deleteBuckets: ", err.Error())
 		if err := notify("Delete bucket failed, please check not and delete buckets manually.", RED); err != nil {
-			log.Println("notify: ", err)
+			log.Println("notify: ", err.Error())
 		}
 		w.WriteHeader(500)
 		return
@@ -115,28 +122,49 @@ func notify(description string, color int) error {
 	return nil
 }
 
-func waitDeploy() (isLast bool, err error) {
+func lastBuild() (bool, error) {
+	service, err := cloudbuild.NewService(context.Background())
+	if err != nil {
+		return false, err
+	}
+
+	parent := "projects/" + os.Getenv("PROJECT_NAME") + "/locations/-"
+	resp, err := service.Projects.Locations.Builds.List(parent).Do()
+	if err != nil {
+		return false, err
+	}
+
+	// resp.Builds have 20 latest builds.
+	for _, b := range resp.Builds {
+		if b.Status == "STATUS_UNKNOWN" || b.Status == "PENDING" || b.Status == "QUEUED" || b.Status == "WORKING" {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func waitDeploy() (err error) {
 	// Since there's a delay between build completion and resource deployment completion,
-	// startCount should at least be 1.
-	startCount, err := countDeployInProgress()
+	// startVersion should at least be 1.
+	startVersion, err := countVersion()
 	if err != nil {
 		return
 	}
 	// Check if there's a function finish deploying every 10 seconds
-	var count uint
+	var version int64
 	for {
-		time.Sleep(10 * time.Second)
-		if count, err = countDeployInProgress(); count < startCount || count == 0 {
+		time.Sleep(5 * time.Second)
+		if version, err = countVersion(); version > startVersion {
 			if err != nil {
 				return
 			}
 			break
 		}
 	}
-	return count == 0, nil
+	return nil
 }
 
-func countDeployInProgress() (uint, error) {
+func countVersion() (int64, error) {
 	service, err := cloudfunctions.NewService(context.Background())
 	if err != nil {
 		return 0, err
@@ -147,13 +175,12 @@ func countDeployInProgress() (uint, error) {
 		return 0, err
 	}
 
-	var inProgressCount uint
+	// Cannot use status because even updating it's "ACTIVE".
+	var totalVersion int64
 	for _, fn := range resp.Functions {
-		if fn.Status == "DEPLOY_IN_PROGRESS" {
-			inProgressCount += 1
-		}
+		totalVersion += fn.VersionId
 	}
-	return inProgressCount, nil
+	return totalVersion, nil
 }
 
 func cleanBuckets() error {
@@ -199,7 +226,7 @@ func deleteObject(ctx context.Context, wg *sync.WaitGroup, name string, bkt *sto
 
 	err := bkt.Object(name).Delete(ctx)
 	if err != nil {
-		log.Println(err)
+		log.Println(err.Error())
 	}
 }
 
