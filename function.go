@@ -12,7 +12,6 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/qiyihuang/messenger"
 	"google.golang.org/api/cloudbuild/v1"
-	"google.golang.org/api/cloudfunctions/v1"
 	"google.golang.org/api/iterator"
 )
 
@@ -63,6 +62,8 @@ func Clean(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// To tolerate the difference between pubsub message and build status changed to SUCCESS.
+	time.Sleep(5 * time.Second)
 	isLast, err := lastBuild()
 	if err != nil {
 		internalError(w, err, "lastBuild: ")
@@ -74,11 +75,8 @@ func Clean(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := waitDeploy(); err != nil {
-		internalError(w, err, "waitDeploy: ")
-		return
-	}
-
+	// There's a delay for around a minute and a half between build completion and function being 'active'.
+	time.Sleep(2 * time.Minute)
 	if err := cleanBuckets(); err != nil {
 		log.Println("deleteBuckets: ", err.Error())
 		if err := notify("Delete bucket failed, please check not and delete buckets manually.", RED); err != nil {
@@ -136,51 +134,12 @@ func lastBuild() (bool, error) {
 
 	// resp.Builds have 20 latest builds.
 	for _, b := range resp.Builds {
-		if b.Status == "STATUS_UNKNOWN" || b.Status == "PENDING" || b.Status == "QUEUED" || b.Status == "WORKING" {
+		if b.Status == "PENDING" || b.Status == "QUEUED" || b.Status == "WORKING" {
+			log.Println("Build ", b.Id, " is still ", b.Status, ".")
 			return false, nil
 		}
 	}
 	return true, nil
-}
-
-func waitDeploy() (err error) {
-	// Since there's a delay between build completion and resource deployment completion,
-	// startVersion should at least be 1.
-	startVersion, err := countVersion()
-	if err != nil {
-		return
-	}
-	// Check if there's a function finish deploying every 10 seconds
-	var version int64
-	for {
-		time.Sleep(5 * time.Second)
-		if version, err = countVersion(); version > startVersion {
-			if err != nil {
-				return
-			}
-			break
-		}
-	}
-	return nil
-}
-
-func countVersion() (int64, error) {
-	service, err := cloudfunctions.NewService(context.Background())
-	if err != nil {
-		return 0, err
-	}
-	parent := "projects/" + os.Getenv("PROJECT_NAME") + "/locations/-"
-	resp, err := service.Projects.Locations.Functions.List(parent).Do()
-	if err != nil {
-		return 0, err
-	}
-
-	// Cannot use status because even updating it's "ACTIVE".
-	var totalVersion int64
-	for _, fn := range resp.Functions {
-		totalVersion += fn.VersionId
-	}
-	return totalVersion, nil
 }
 
 func cleanBuckets() error {
